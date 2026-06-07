@@ -1,1 +1,12 @@
 Just some text to document what else is in this repository.
+
+6/7/2026
+I added 2 python files that
+    1) Pull from an ADSB API
+    2) Uses Streamlit to plot a map
+    3) Plots the location of the planes we found (within 75 miles of our location) as vectors from us to planes
+    4) Uses another API to pull elevation data along the ground paths of those vectors
+    5) Compares the vector elevation to the elevation at the same point to gauge any obstructions
+
+Next I want to use the "calculate_slant_range" to give me the 'north up' azimuth and elevation angles.
+I'd then use these as inputs to my steering algorithm to track a plane as it flys by.
