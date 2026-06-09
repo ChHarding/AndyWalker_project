@@ -123,11 +123,18 @@ def call_api(latitude, longitude, altitude, units="M"):
 	    "Content-Type": "application/json"
     }
 
-    with open(r"./Data/data.txt", "w") as f:
-        response = requests.get(url, headers=headers)
-        r=response.json()
-        print(r, file=f)
-    return r
+    #Guard against bad/no response
+    response = requests.get(url, headers=headers)
+
+    # Check if the request was successful
+    if response.status_code == 200:
+        with open(r"./Data/data.txt", "w") as f:
+            r = response.json()
+            print(r, file=f)
+        return r
+    else:
+        print(f"API request failed with status code: {response.status_code}")
+        return None
 
 def plot_map (latitude, longitude, range_10, range_20, range_30):
     """
@@ -257,20 +264,57 @@ def get_elevation(coord1, coord2, num_segments):
     }
 
     responses = openmeteo.weather_api(url, params=params)
+    #Initialize a list to hold the terrain masking results for each point along the line    
+    terrain_masked = []
 
-    terrain_masked = [""] * len(responses) #Initialize a list to hold the terrain masking results for each point along the line
-
-# Process current data. The order of variables needs to be the same as requested.
+    # Process current data. The order of variables needs to be the same as requested.
     for i, response in enumerate(responses):
         current = response.Current()
         current_temperature_2m = current.Variables(0).Value()
         current_relative_humidity_2m = current.Variables(1).Value()
         if response.Elevation() < alts[i]:
-            terrain_masked[i] = "No"
+            terrain_masked.append(False)
         else:
-            terrain_masked[i] = "Yes"
+            terrain_masked.append(True)
         
     return terrain_masked
 
 #    return(response.Elevation(), current.Time(), current_temperature_2m, current_relative_humidity_2m)
+
+# CH: just be aware that math with degrees get funkier with longer distances. If you're in or close to Iowa you could use UTM15, Web mercator is also kinda crap in the Arctic but on the continent it's still better than raw lat/long
+from pyproj import Transformer
+
+def convert_coordinates(lat, lon):
+    """
+    Converts latitude and longitude to UTM Zone 15N and Web Mercator.
+
+    Parameters:
+        lat (float): Latitude in degrees.
+        lon (float): Longitude in degrees.
+
+    Returns:
+        dict: A dictionary with the converted coordinates.
+    """
+    # Transformer for WGS84 (lat/lon) to UTM Zone 15N
+    # Note: pyproj transformers expect (latitude, longitude)
+    transformer_utm = Transformer.from_crs("EPSG:4326", "EPSG:32615", always_xy=False)
+    utm_northing, utm_easting = transformer_utm.transform(lat, lon)
+
+    # Transformer for WGS84 (lat/lon) to Web Mercator
+    transformer_mercator = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=False)
+    mercator_y, mercator_x = transformer_mercator.transform(lat, lon)
+
+    return {
+        "utm15n": {"easting": utm_easting, "northing": utm_northing},
+        "web_mercator": {"x": mercator_x, "y": mercator_y}
+    }
+
+# --- Example Usage ---
+#latitude = 42.0229  # Example: Cedar Rapids, IA
+#longitude = -91.6656
+
+#converted = convert_coordinates(latitude, longitude)
+#print(f"Original (Lat/Lon): {latitude}, {longitude}")
+#print(f"UTM Zone 15N: {converted['utm15n']}")
+#print(f"Web Mercator: {converted['web_mercator']}")
 
