@@ -1,13 +1,9 @@
 import Myfuncs
 import re
 import itertools
-import time
 from collections import defaultdict
-from functools import reduce
-from operator import xor
 
 Live = True
-limit_range = "70"
 
 if Live:
 #Get data from the ADS-B API
@@ -16,16 +12,12 @@ if Live:
     except KeyboardInterrupt:
         print("Stopped reading GPS.")
     except Exception as exc:
-        #latitude = 42.04425
-        #longitude = -91.627306
-        #altitude = 260.00
-        #South of Heathrow
-        latitude = 50.827276295494734
-        longitude = 0.2060202678627942
-        altitude = 50.00
-        
-        #print(exc)
-    r = Myfuncs.call_api(str(latitude), str(longitude), altitude, limit_range)
+        latitude = 42.04425
+        longitude = -91.627306
+        altitude = 260.00
+        print(exc)
+
+    r = Myfuncs.call_api(str(latitude), str(longitude), altitude)
     
 else:
 #Just use canned data from an old file
@@ -34,7 +26,7 @@ else:
 
 r_list = r["ac"] #Extract the list of aircraft from the API response
 
-keys_to_keep = {"lat", "lon", "alt_geom", "flight"} #Only keep the keys we need for plotting and range calculations
+keys_to_keep = {"lat", "lon", "alt_geom"} #Only keep the keys we need for plotting and range calculations
 filtered_r = [{k: v for k, v in d.items() if k in keys_to_keep} for d in r_list]
 really_filtered_r = [
     d for d in filtered_r #Only keep entries that have the "alt_geom" key, since we need altitude for range calculations
@@ -52,25 +44,18 @@ range_30 = Myfuncs.calculate_radar_range(rcs_sqm=1000)
 
 my_map = Myfuncs.plot_map (latitude, longitude, range_10, range_20, range_30)
 
-slant_range = []
-terrain_masking = []
-
-# Print header row
-print(f"{'Degrees (Az)':<15} {'Degrees (El)':<15} {'Slant Range (km)':<20} {'Masked?':<14} {'Received Time (ms)':<15}")
-print("-" * 88)
+slant_range = [0] * len(r_list) #Initialize a list to hold the slant range values for each aircraft
+terrain_masking = [0] * len(r_list) #Initialize a list to hold the terrain elevation values for each aircraft
 
 for i in range(len(r_list)):
     radar = (latitude, longitude)
     plane = (r_list[i]["lat"], r_list[i]["lon"])
-    Myfuncs.plot_plane (radar, plane, my_map, r_list[i])
+    Myfuncs.plot_plane (radar, plane, my_map, "Slant Range Path")
     
     radar += ((altitude),)
     plane += ((r_list[i]["alt_geom"] * 0.3048),)
 
-    slant_range.append(Myfuncs.calculate_slant_range(radar, plane))
-    terrain_masking.append(Myfuncs.get_masking(radar, plane, 5))
+    slant_range[i] = Myfuncs.calculate_slant_range(radar, plane)
+    terrain_masking[i] = Myfuncs.get_elevation(radar, plane, 3)
     
-    print(f"{(str(round(slant_range[i][0], 3))):<15} {(str(round(slant_range[i][1], 3))):<7} \
-        {(str(round(slant_range[i][2] / 1000, 2))):<20} {(str(reduce(xor, terrain_masking[i][0]))):<6} \
-        {(time.time_ns() // 1_000_000):<15} ")
     

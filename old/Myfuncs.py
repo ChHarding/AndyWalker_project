@@ -1,6 +1,6 @@
 from http.client import responses
 from urllib import response
-import pyproj
+from pyproj import Transformer
 import requests
 import numpy as np
 import serial
@@ -9,6 +9,7 @@ import math
 import folium
 import geopy
 import openmeteo_requests
+
 
 def calculate_slant_range(radar, plane):
     """
@@ -21,27 +22,10 @@ def calculate_slant_range(radar, plane):
     Returns:
         float: Slant range in meters
     """
-    #Work on a spherical Earth model the az/el angles
-    geod = pyproj.Geod(ellps='WGS84')
-    fwd_azimuth, back_azimuth, distance = geod.inv(radar[1], radar[0], plane[1], plane[0])
-    # Normalize negative azimuths (e.g., -10° becomes 350°)
-    azimuth = (fwd_azimuth + 360) % 360
-    
-    # Calculate the difference in altitude
-    delta_alt = plane[2] - radar[2]
-
-    # Calculate the elevation angle (in radians, then converted to degrees)
-    elevation_rad = math.atan2(delta_alt, distance)
-    elevation = math.degrees(elevation_rad)
-    
-    #Work with Cartesion coordinates to get the slant range
-    transformer = pyproj.Transformer.from_crs("EPSG:4326", "EPSG:4978", always_xy=True) # WGS84 geodetic to ECEF Cartesian coordinates
+    transformer = Transformer.from_crs("EPSG:4326", "EPSG:4978", always_xy=True) # WGS84 geodetic to ECEF Cartesian coordinates
     x1, y1, z1 = transformer.transform(radar[1], radar[0], radar[2]) # Note: transformer takes (lon, lat, alt)
     x2, y2, z2 = transformer.transform(plane[1], plane[0], plane[2])
-    slant_range = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2)
-    
-    output = [azimuth, elevation, slant_range]   
-    return output
+    return np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2)
 
 def read_gps_coordinates(serial_port='COM5', baud_rate=4800, timeout=1, max_attempts=50):
     """
@@ -118,7 +102,7 @@ def calculate_radar_range(pt_watts=250, gain_db=26, num_pulses=1000, freq_hz=2.4
     
     return max_range
 
-def call_api(latitude, longitude, altitude, limit_range="27", units="M"):
+def call_api(latitude, longitude, altitude, units="M"):
     """
     Pull aircraft data from the API 75 miles or less from the given GPS coordinates.
     The default location is the corner of the field by Bowman Woods in Cedar Rapids, IA
@@ -130,7 +114,8 @@ def call_api(latitude, longitude, altitude, limit_range="27", units="M"):
     Returns:.
         r, the whole response from the API as a string
     """    
-    url = "https://adsbexchange-com1.p.rapidapi.com/v2/lat/" + latitude + "/lon/" + longitude + "/dist/" + limit_range + "/"
+    
+    url = "https://adsbexchange-com1.p.rapidapi.com/v2/lat/" + latitude + "/lon/" + longitude + "/dist/75/"
 
     headers = {
 	    "x-rapidapi-key": "a0fe71760fmsh977c0a9513c9347p10c707jsn8fa3607d5a53",
@@ -223,7 +208,6 @@ def plot_plane (coord1, coord2, my_map, description):
     Returns:
     Nothing. Updates an interactive map called "interactive_map.html".
     """
-    custom_string = "<br>".join(f"{k}={v}" for k, v in description.items())
 
     # Group the two points into a list for PolyLine
     points = [coord1, coord2]
@@ -232,14 +216,14 @@ def plot_plane (coord1, coord2, my_map, description):
     folium.PolyLine(
         locations=points,
         color="blue",       # Line color
-        weight=3,           # Line thickness in pixels
+        weight=4,           # Line thickness in pixels
         opacity=0.8,        # Line transparency
-        tooltip=custom_string # Hover text
+        tooltip=description # Hover text
     ).add_to(my_map)
 
     my_map.save(r"./Data/interactive_map.html")
 
-def get_masking(coord1, coord2, num_segments):
+def get_elevation(coord1, coord2, num_segments):
     """
     Creates a line given 2 coordinates and divides it into "count" number of points.
     Then, it calls the OpenMeteo API to get the elevation at each point and returns a list of elevations.    
@@ -250,7 +234,7 @@ def get_masking(coord1, coord2, num_segments):
     count (int): Number of points to divide the line into
 
     Returns:
-    list: A list of booleans indicating whether each point along the line is masked by terrain.
+    list: A list of elevations at each point along the line.
     """
     lat1, lon1, alt1 = coord1 #radar
     lat2, lon2, alt2 = coord2 #aircraft
@@ -280,10 +264,10 @@ def get_masking(coord1, coord2, num_segments):
     }
 
     responses = openmeteo.weather_api(url, params=params)
-
+    #Initialize a list to hold the terrain masking results for each point along the line    
     terrain_masked = []
 
-# Process current data. The order of variables needs to be the same as requested.
+    # Process current data. The order of variables needs to be the same as requested.
     for i, response in enumerate(responses):
         current = response.Current()
         current_temperature_2m = current.Variables(0).Value()
@@ -293,5 +277,44 @@ def get_masking(coord1, coord2, num_segments):
         else:
             terrain_masked.append(True)
         
-    return (terrain_masked, current.Time())
+    return terrain_masked
+
+#    return(response.Elevation(), current.Time(), current_temperature_2m, current_relative_humidity_2m)
+
+# CH: just be aware that math with degrees get funkier with longer distances. If you're in or close to Iowa you could use UTM15, Web mercator is also kinda crap in the Arctic but on the continent it's still better than raw lat/long
+from pyproj import Transformer
+
+def convert_coordinates(lat, lon):
+    """
+    Converts latitude and longitude to UTM Zone 15N and Web Mercator.
+
+    Parameters:
+        lat (float): Latitude in degrees.
+        lon (float): Longitude in degrees.
+
+    Returns:
+        dict: A dictionary with the converted coordinates.
+    """
+    # Transformer for WGS84 (lat/lon) to UTM Zone 15N
+    # Note: pyproj transformers expect (latitude, longitude)
+    transformer_utm = Transformer.from_crs("EPSG:4326", "EPSG:32615", always_xy=False)
+    utm_northing, utm_easting = transformer_utm.transform(lat, lon)
+
+    # Transformer for WGS84 (lat/lon) to Web Mercator
+    transformer_mercator = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=False)
+    mercator_y, mercator_x = transformer_mercator.transform(lat, lon)
+
+    return {
+        "utm15n": {"easting": utm_easting, "northing": utm_northing},
+        "web_mercator": {"x": mercator_x, "y": mercator_y}
+    }
+
+# --- Example Usage ---
+#latitude = 42.0229  # Example: Cedar Rapids, IA
+#longitude = -91.6656
+
+#converted = convert_coordinates(latitude, longitude)
+#print(f"Original (Lat/Lon): {latitude}, {longitude}")
+#print(f"UTM Zone 15N: {converted['utm15n']}")
+#print(f"Web Mercator: {converted['web_mercator']}")
 
