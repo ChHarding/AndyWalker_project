@@ -10,3 +10,22 @@ I added 2 python files that
 
 Next I want to use the "calculate_slant_range" to give me the 'north up' azimuth and elevation angles.
 I'd then use these as inputs to my steering algorithm to track a plane as it flys by.
+
+6/22/2026
+
+I've updated my files to:
+    1) Calculate the azimuth and elevation angles that the sensor would use to point at each aircraft
+    2) Plot critical information on the vectors from the sensor to each aircraft
+    3) xor the evaluations of ground masking into one boolean
+    4) Tabulate the information into an output table for easy reading
+
+Next I want to make a tracker for each aircraft, avoiding using the flight number to explicitly keep track of each aircraft.
+Instead, I'm thinking I'll just make an assumption about the distance a plane can travel over the time elapse since the last
+measurement. That will give me a range circular that I can then inspect for aircraft. If there is only one inside the circle,
+then that's the appropriate plane and I can draw a line between the last measurement location and new one. Recording and
+drawing these lines will give a piecewise linear trajectory of each aircraft on the map without too much heavy algorithmic
+lifting. The reason I want to avoid explicit labeling of each aircraft is because the sensor will only generate az/el/range
+numbers and so if I only use those, I'll be able maintain the tracker when consuming sensor data as well as ADSB data.
+
+I need a little review to make sure I'm not aggregiously abusing lat/lon math and I need to spend more time reading about
+coordinate transforms so I can perform the math correctly everywhere.
