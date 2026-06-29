@@ -2,35 +2,40 @@ import Myfuncs
 import re
 import itertools
 import time
+import ast
 from collections import defaultdict
 from functools import reduce
-from operator import xor
+from operator import or_
 
-Live = True
-limit_range = "70"
+# Defaults
+default_live = False 
+default_lr = "10"
+default_latitude = 50.827276295494734 #Assumes you don't just measure your location
+default_longitude = 0.2060202678627942 #Assumes you don't just measure your location
+default_altitude = 50.00 #Assumes you don't just measure your location
 
-if Live:
+if ((input(f"Enter Live Data (True/False) [{default_live}]: ").strip() or default_live) == "True"):
 #Get data from the ADS-B API
+    limit_range = input(f"Enter Range to Limit Data [{default_lr}]: ").strip() or default_lr
     try:
         latitude, longitude, altitude, units = Myfuncs.read_gps_coordinates("COM6")
     except KeyboardInterrupt:
         print("Stopped reading GPS.")
     except Exception as exc:
-        #latitude = 42.04425
-        #longitude = -91.627306
-        #altitude = 260.00
-        #South of Heathrow
-        latitude = 50.827276295494734
-        longitude = 0.2060202678627942
-        altitude = 50.00
-        
-        #print(exc)
+        latitude = default_latitude
+        longitude=default_longitude
+        altitude=default_altitude
     r = Myfuncs.call_api(str(latitude), str(longitude), altitude, limit_range)
-    
+
 else:
 #Just use canned data from an old file
     with open(r"./Data/data.txt", "r", encoding="utf-8") as f:
-        r = f.read()
+        r_str = f.read()
+        r = ast.literal_eval(r_str)
+        # Ask for input and offer the fallback option
+        latitude = input(f"Enter sensor latitude [{default_latitude}]: ").strip() or default_latitude
+        longitude = input(f"Enter sensor longitude [{default_longitude}]: ").strip() or default_longitude
+        altitude = input(f"Enter sensor altitude [{default_altitude}]: ").strip() or default_altitude
 
 r_list = r["ac"] #Extract the list of aircraft from the API response
 
@@ -60,17 +65,22 @@ print(f"{'Degrees (Az)':<15} {'Degrees (El)':<15} {'Slant Range (km)':<20} {'Mas
 print("-" * 88)
 
 for i in range(len(r_list)):
+    
     radar = (latitude, longitude)
     plane = (r_list[i]["lat"], r_list[i]["lon"])
-    Myfuncs.plot_plane (radar, plane, my_map, r_list[i])
     
     radar += ((altitude),)
     plane += ((r_list[i]["alt_geom"] * 0.3048),)
-
+    
     slant_range.append(Myfuncs.calculate_slant_range(radar, plane))
     terrain_masking.append(Myfuncs.get_masking(radar, plane, 5))
     
     print(f"{(str(round(slant_range[i][0], 3))):<15} {(str(round(slant_range[i][1], 3))):<7} \
-        {(str(round(slant_range[i][2] / 1000, 2))):<20} {(str(reduce(xor, terrain_masking[i][0]))):<6} \
+        {(str(round(slant_range[i][2] / 1000, 2))):<20} {(str(reduce(or_, terrain_masking[i]))):<6} \
         {(time.time_ns() // 1_000_000):<15} ")
-    
+
+    if (reduce(or_, terrain_masking[i])):
+        Myfuncs.plot_plane (radar[0:2], plane[0:2], my_map, r_list[i], "red")
+    else:
+        Myfuncs.plot_plane (radar[0:2], plane[0:2], my_map, r_list[i], "blue")
+

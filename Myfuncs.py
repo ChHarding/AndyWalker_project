@@ -211,7 +211,7 @@ def plot_map (latitude, longitude, range_10, range_20, range_30):
 
     return(my_map)
 
-def plot_plane (coord1, coord2, my_map, description):
+def plot_plane (coord1, coord2, my_map, description, col = "blue"):
     """
     Plots a line on an existing map using Folium that is the vector from the sensor to the plane
     
@@ -224,14 +224,14 @@ def plot_plane (coord1, coord2, my_map, description):
     Nothing. Updates an interactive map called "interactive_map.html".
     """
     custom_string = "<br>".join(f"{k}={v}" for k, v in description.items())
-
+    
     # Group the two points into a list for PolyLine
     points = [coord1, coord2]
     
     # Create the line layer and add it to the map
     folium.PolyLine(
         locations=points,
-        color="blue",       # Line color
+        color=col,       # Line color
         weight=3,           # Line thickness in pixels
         opacity=0.8,        # Line transparency
         tooltip=custom_string # Hover text
@@ -268,7 +268,7 @@ def get_masking(coord1, coord2, num_segments):
         lats.append(current_lat)
         lons.append(current_lon)
         alts.append(current_alt)
-        
+    
     openmeteo = openmeteo_requests.Client()
 
     url = "https://api.open-meteo.com/v1/forecast"
@@ -279,19 +279,22 @@ def get_masking(coord1, coord2, num_segments):
     	"current": ["temperature_2m", "relative_humidity_2m"],
     }
 
-    responses = openmeteo.weather_api(url, params=params)
+    try:
+        responses = openmeteo.weather_api(url, params=params)
 
-    terrain_masked = []
+        terrain_masked = []
 
-# Process current data. The order of variables needs to be the same as requested.
-    for i, response in enumerate(responses):
-        current = response.Current()
-        current_temperature_2m = current.Variables(0).Value()
-        current_relative_humidity_2m = current.Variables(1).Value()
-        if response.Elevation() < alts[i]:
-            terrain_masked.append(False)
-        else:
-            terrain_masked.append(True)
-        
-    return (terrain_masked, current.Time())
+    # Process current data. The order of variables needs to be the same as requested.
+        for i, response in enumerate(responses):
+            current = response.Current()
+            #current_temperature_2m = current.Variables(0).Value()
+            #current_relative_humidity_2m = current.Variables(1).Value()
+            if response.Elevation() < alts[i]:
+                terrain_masked.append(False)
+            else:
+                terrain_masked.append(True)
 
+        return (terrain_masked)
+    except:
+        #It's actually not that bad to return an incorrect False, it just means we look for a plane we can't sense
+        return ([False])
