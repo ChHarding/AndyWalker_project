@@ -237,9 +237,9 @@ def plot_plane (coord1, coord2, my_map, description, col = "blue"):
     folium.Circle(
         location=coord2,
         radius=20,            # Radius explicitly set in meters
-        color="green",
+        color=col,
         fill=True,
-        fill_color="green",
+        fill_color=col,
         fill_opacity=0.3,
         popup=custom_string # Hover text
     ).add_to(my_map)
